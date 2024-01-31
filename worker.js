@@ -1,14 +1,13 @@
-const express = require("express");
-const amqp = require("amqplib");
+import express from "express";
+import amqp from "amqplib";
 
 const app = express();
 let port = 5000;
 const queueName = "tasks";
-const resultQueueName = "results"; // New result queue name
+const resultQueueName = "results";
 
-let workerId; // Worker ID for this instance
-
-// Worker ID is received as a command line argument
+let workerId;
+let channel;
 process.argv.forEach((val, index) => {
   if (index > 1) {
     workerId = parseInt(val);
@@ -18,11 +17,13 @@ process.argv.forEach((val, index) => {
 });
 
 async function connectToRabbitMQ() {
-  const rabbitMQUrl = "amqp://localhost"; // Change this based on your RabbitMQ server configuration
-  const connection = await amqp.connect(rabbitMQUrl);
-  const channel = await connection.createChannel();
-  await channel.assertQueue(queueName);
-  await channel.assertQueue(resultQueueName); // New result queue assertion
+  if (!channel) {
+    const rabbitMQUrl = "amqp://localhost";
+    const connection = await amqp.connect(rabbitMQUrl);
+    channel = await connection.createChannel();
+    await channel.assertQueue(queueName);
+    await channel.assertQueue(resultQueueName);
+  }
   return channel;
 }
 
@@ -30,27 +31,29 @@ async function processTask(task, channel) {
   if (task.workerId === workerId) {
     console.log(`Worker ${workerId} received task for processing:`, task);
 
-    // Simulate time-consuming task processing
     await simulateProcessing(task);
 
-    // Once processing is complete, send the result back to the supervisor
     const result = {
       taskId: task.id,
-      result: "Processing complete", // Modify this with the actual result
+      result: "Processing complete",
     };
+    await channel.sendToQueue(
+      resultQueueName,
+      Buffer.from(JSON.stringify(result))
+    );
 
-    // Publish the result to the results queue
-    await channel.sendToQueue(resultQueueName, Buffer.from(JSON.stringify(result)));
-
-    console.log(`Task processed by Worker ${workerId}. Result sent to Supervisor`);
+    console.log(
+      `Task processed by Worker ${workerId}. Result sent to Supervisor`
+    );
   } else {
-    console.log(`Task with ID ${task.id} is not for Worker ${workerId}. Ignoring.`);
+    console.log(
+      `Task with ID ${task.id} is not for Worker ${workerId}. Ignoring.`
+    );
   }
 }
 
 async function simulateProcessing(task) {
-  // Simulate time-consuming task processing
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     setTimeout(() => {
       resolve();
     }, 5000); // Simulating a 5-second processing time
@@ -63,7 +66,7 @@ async function startWorker() {
     channel.consume(queueName, async (msg) => {
       if (msg !== null) {
         const task = JSON.parse(msg.content.toString());
-        await processTask(task, channel); // Pass channel to processTask function
+        await processTask(task, channel);
         channel.ack(msg);
       }
     });

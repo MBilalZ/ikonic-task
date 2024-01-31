@@ -1,7 +1,6 @@
-// producer.js
-const express = require("express");
-const axios = require("axios");
-const { v4: uuidv4 } = require("uuid"); // Import UUID module
+import express from "express";
+import axios from "axios";
+import { v4 as uuidv4 } from "uuid";
 
 const app = express();
 const port = 3000;
@@ -12,10 +11,8 @@ app.use(express.json());
 app.post("/produce", async (req, res) => {
   const data = req.body;
 
-  // Generate a unique task ID using UUID
   const id = uuidv4();
 
-  // Include the task ID in the task data
   const task = {
     id,
     ...data,

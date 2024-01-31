@@ -1,7 +1,7 @@
-const express = require("express");
-const amqp = require("amqplib");
-const redis = require("redis");
-const { v4: uuidv4 } = require("uuid");
+import express from "express";
+import amqp from "amqplib";
+import redis from "redis";
+import { v4 as uuidv4 } from "uuid";
 
 const app = express();
 const port = 3001;
@@ -12,11 +12,15 @@ const rabbitMQUrl = "amqp://localhost";
 const taskQueueName = "tasks";
 const resultQueueName = "results";
 
+let channel;
+
 async function connectToRabbitMQ() {
-  const connection = await amqp.connect(rabbitMQUrl);
-  const channel = await connection.createChannel();
-  await channel.assertQueue(taskQueueName);
-  await channel.assertQueue(resultQueueName);
+  if (!channel) {
+    const connection = await amqp.connect(rabbitMQUrl);
+    channel = await connection.createChannel();
+    await channel.assertQueue(taskQueueName);
+    await channel.assertQueue(resultQueueName);
+  }
   return channel;
 }
 
@@ -34,11 +38,13 @@ async function distributeTask(task) {
 
     if (!isTaskProcessed) {
       console.log(`Supervisor sending task ${task.id} to RabbitMQ`);
-      const channel = await connectToRabbitMQ();
-      console.log(`Connected to RabbitMQ`);
       const workerId = selectWorkerId();
       console.log(`Selected Worker ID: ${workerId}`);
       task.workerId = workerId;
+
+      const channel = await connectToRabbitMQ();
+      console.log(`Connected to RabbitMQ`);
+
       await channel.sendToQueue(
         taskQueueName,
         Buffer.from(JSON.stringify(task))
@@ -80,7 +86,7 @@ async function isTaskAlreadyProcessed(taskId) {
 async function processResult(result) {
   try {
     const localRedisClient = redis.createClient();
-    localRedisClient.set("taskId", result.taskId);
+    localRedisClient.set(result.taskId, JSON.stringify(result.result));
     localRedisClient.quit();
     console.log("Result cached in Redis");
   } catch (error) {
