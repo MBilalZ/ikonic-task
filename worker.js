@@ -29,6 +29,7 @@ async function processTask(task) {
   if (task.workerId === workerId) {
     console.log(`Worker ${workerId} received task for processing:`, task);
     // Perform processing here
+    setTimeout(()=>{},5000);
     console.log(`Task processed by Worker ${workerId}`);
   } else {
     console.log(
