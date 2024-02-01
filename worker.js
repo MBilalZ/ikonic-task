@@ -57,7 +57,7 @@ if (cluster.isPrimary) {
     return new Promise((resolve) => {
       setTimeout(() => {
         resolve();
-      }, 5000); // Simulating a 5-second processing time
+      }, 10000); // Simulating a 10-second processing time
     });
   }
 
