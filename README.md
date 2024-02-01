@@ -1,79 +1,118 @@
-# Task Distribution System Readme
+# Distributed Task Processing System with RabbitMQ, Express, and Redis
 
 ## Overview
 
-This repository contains a task distribution system consisting of a producer, multiple worker nodes, and a supervisor. The system is designed to handle the generation, distribution, and processing of tasks, with a focus on load balancing and result caching using Redis.
+This project implements a distributed task processing system using RabbitMQ as the message queue, Express for creating HTTP APIs, and Redis for result caching. The system consists of three main components:
 
-## Components
+1. **Producer**: Generates tasks with varying complexities and sends them to a RabbitMQ queue for processing.
 
-### 1. Producer
+2. **Worker Nodes**: Multiple worker nodes listen for tasks in the RabbitMQ queue, simulate time-consuming processing, and return the results to another RabbitMQ queue.
 
-- **File:** `producer.js`
-- **Responsibility:** Generates tasks with varying complexities and sends them to the supervisor for distribution.
+3. **Supervisor**: Manages the tasks, distributes them among available workers, and collects the results. It uses Redis for result caching to optimize and avoid redundant processing for similar tasks.
 
-#### Code Breakdown:
+## Code Description
 
-- Utilizes Express.js for handling HTTP requests.
-- Uses Axios for making HTTP requests to the supervisor.
-- Generates a unique task ID using the UUID module.
-- Exposes an endpoint `/produce` to receive task data, attaches a unique ID, and sends it to the supervisor.
+### Producer (`producer.js`)
 
-### 2. Supervisor
+- **Endpoint**: `/produce` (HTTP POST)
+- **Functionality**: Receives a task from an external source, logs the received data, and then sends the task to the supervisor for distribution among workers.
+- **Dependencies**: Express, Axios, uuid
 
-- **File:** `supervisor.js`
-- **Responsibility:** Manages task distribution, checks if tasks are already processed, distributes tasks among workers, and caches results in Redis.
+```javascript
+// Relevant Code
+app.post("/produce", async (req, res) => {
+  // ... [Receive and log task data]
 
-#### Code Breakdown:
+  try {
+    await axios.post(supervisorEndpoint, data);
+    // ... [Log and respond]
+  } catch (error) {
+    // ... [Handle errors]
+  }
+});
+```
 
-- Utilizes Express.js for handling HTTP requests.
-- Uses amqplib for interacting with RabbitMQ message broker.
-- Uses Redis for caching task results.
-- Defines a function to connect to RabbitMQ and create queues for tasks and results.
-- Checks if a task is already processed in Redis before distributing it to workers.
-- Caches task results in Redis to avoid redundant processing for similar tasks.
-- Exposes endpoints `/supervise` to receive tasks from the producer and `/results/:taskId` to retrieve results.
+### Worker Nodes (`worker.js`)
 
-### 3. Worker
+- **Functionality**: Worker nodes simulate time-consuming processing of tasks and send the results to another RabbitMQ queue.
 
-- **File:** `worker.js`
-- **Responsibility:** Listens for tasks in the queue, processes them (simulates a time-consuming task), and returns the results.
+```javascript
+// Relevant Code
+channel.consume(queueName, async (msg) => {
+  if (msg !== null) {
+    const task = JSON.parse(msg.content.toString());
+  // ... [Log and simulate processing]
+    await processTask(task, channel);
+    channel.ack(msg);
+  }
+});
+```
 
-#### Code Breakdown:
+### Supervisor (`supervisor.js`)
 
-- Utilizes Express.js for handling HTTP requests.
-- Uses amqplib for interacting with RabbitMQ message broker.
-- Connects to RabbitMQ, creates a queue for tasks, and starts listening for incoming tasks.
-- Processes tasks based on the worker's ID, simulating a time-consuming task.
+- **Endpoints**: `/supervise` (HTTP POST), `/results/:taskId` (HTTP GET)
+- **Functionality**:
+  - `/supervise`: Receives a task, checks if it's already processed, selects a worker, and sends the task to RabbitMQ for processing.
+  - `/results/:taskId`: Retrieves results from Redis based on taskId.
+- **Dependencies**: Express, amqplib, Redis, Axios
 
-## Workflow
+```javascript
+// Relevant Code
+app.post("/supervise", async (req, res) => {
+  // ... [Receive and log task data]
+  await distributeTask(data);
+  // ... [Log and respond]
+});
 
-1. The producer generates tasks and sends them to the supervisor using HTTP POST requests.
-2. The supervisor checks if the task is already processed by querying Redis. If not, it connects to RabbitMQ and distributes the task among available workers, ensuring load balancing.
-3. Workers receive tasks from the queue, process them (simulating time-consuming tasks), and send the results back to the supervisor through another RabbitMQ queue.
-4. The supervisor caches the results in Redis to avoid redundant processing for similar tasks.
-5. Clients can query the supervisor for task results using the `/results/:taskId` endpoint.
+app.get("/results/:taskId", async (req, res) => {
+  // ... [Retrieve result from Redis based on taskId]
+});
+```
 
-## Load Balancing
+### Load Balancing and Redis Caching
 
-Load balancing is implemented by having the supervisor select a worker based on a round-robin strategy. The `selectWorkerId` function ensures that tasks are evenly distributed among available workers.
+- Load balancing is achieved by selecting a worker based on a round-robin algorithm.
+- Redis is used to cache results to avoid redundant processing for similar tasks.
 
-## Result Caching with Redis
+```javascript
+// Relevant Code (Load Balancing)
+async function selectWorkerId() {
+  // ... [Round-robin worker selection]
+}
 
-Results are cached in Redis by the supervisor using the `localRedisClient` to store and retrieve results. This optimization prevents redundant processing for tasks that have already been completed.
+// Relevant Code (Redis Caching)
+async function isTaskAlreadyProcessed(taskId) {
+  // ... [Check if task is already processed using Redis]
+}
 
-## Setup and Running the System
+async function processResult(result) {
+  // ... [Cache result in Redis]
+}
+```
 
-1. Install dependencies by running `npm install` in the project root.
-2. Ensure RabbitMQ and Redis are installed and running locally.
-3. Start the producer, supervisor, and multiple worker instances using `node producer.js`, `node supervisor.js`, and `node worker.js <workerId>`, respectively.
+### Testing the System (`test.js`)
 
-## Dependencies
+- An example script to test the system by generating and sending 100 tasks to the producer.
 
-- Express.js: Web framework for handling HTTP requests.
-- Axios: HTTP client for making requests.
-- amqplib: RabbitMQ client for interacting with message queues.
-- Redis: In-memory data structure store for caching task results.
+```javascript
+// Relevant Code
+async function StartTest() {
+  // ... [Generate and send tasks using Axios]
+}
+
+// Call the function
+StartTest();
+```
+
+## Running the System
+
+1. Install dependencies: `npm install`.
+2. Ensure RabbitMQ and Redis are running locally.
+3. Start worker nodes: `npm run start-worker`.
+4. Start supervisor: `npm run start-supervisor`.
+5. Start producer: `npm run start-producer`.
+6. Run the test script: `npm run test`.
 
 ## Conclusion
 
-This task distribution system showcases a simple yet effective way to distribute and process tasks among multiple workers, ensuring load balancing and result caching for improved performance. The use of RabbitMQ and Redis enhances the system's scalability and resilience.
+This system demonstrates a simple distributed task processing setup using RabbitMQ for message queuing, Express for API creation, and Redis for result caching. The load balancing ensures tasks are evenly distributed among available workers, and Redis caching optimizes processing efficiency. The provided scripts allow easy testing of the system.
