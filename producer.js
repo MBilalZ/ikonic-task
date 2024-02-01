@@ -11,21 +11,15 @@ app.use(express.json());
 app.post("/produce", async (req, res) => {
   const data = req.body;
 
-  const id = uuidv4();
 
-  const task = {
-    id,
-    ...data,
-  };
-
-  console.log("Producer received data:", task);
+  console.log("Producer received data:", data);
 
   try {
-    await axios.post(supervisorEndpoint, task);
+    await axios.post(supervisorEndpoint, data);
     console.log("Task sent to Supervisor for distribution");
     res.json({
       message: "Task sent to Supervisor for distribution",
-      task,
+      data,
     });
   } catch (error) {
     console.error("Error sending task to Supervisor:", error.message);

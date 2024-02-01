@@ -1,19 +1,57 @@
 import express from "express";
 import amqp from "amqplib";
-import redis from "redis";
-import { v4 as uuidv4 } from "uuid";
+import { Redis } from "ioredis";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 const port = 3001;
 
 app.use(express.json());
 
-const rabbitMQUrl = "amqp://localhost";
+const rabbitMQUrl = "amqp://root:root@localhost";
 const taskQueueName = "tasks";
 const resultQueueName = "results";
 
-let channel;
+// import { createClient } from "redis";
 
+async function createRedisClient() {
+  // let client = await createClient({ legacyMode: true }).on("error", (err) =>
+  //   console.log("Redis Client Error", err)
+  // );
+
+  // console.log("Connected to Redis");
+  // return await client.connect();
+  return new Redis();
+}
+
+async function getFromRedis(key) {
+  let client;
+  try {
+    client = await createRedisClient();
+    const res = await client.get(key);
+    console.log("KEYS", key, res);
+    return res;
+  } catch (error) {
+    console.error("Error getting value from Redis:", error.message);
+  } finally {
+    // await client.disconnect();
+  }
+}
+
+async function setFromRedis(key, value) {
+  let client;
+  try {
+    client = await createRedisClient();
+    return await client.set(key, value);
+  } catch (error) {
+    console.error("Error getting value from Redis:", error.message);
+  } finally {
+    // await client.disconnect();
+  }
+}
+
+let channel;
 async function connectToRabbitMQ() {
   if (!channel) {
     const connection = await amqp.connect(rabbitMQUrl);
@@ -38,7 +76,8 @@ async function distributeTask(task) {
 
     if (!isTaskProcessed) {
       console.log(`Supervisor sending task ${task.id} to RabbitMQ`);
-      const workerId = selectWorkerId();
+      const workerId = await selectWorkerId();
+      console.log(workerId);
       console.log(`Selected Worker ID: ${workerId}`);
       task.workerId = workerId;
 
@@ -61,33 +100,16 @@ async function distributeTask(task) {
 }
 
 async function isTaskAlreadyProcessed(taskId) {
-  console.log(`Checking if task ${taskId} exists in Redis...`);
-
-  return new Promise((resolve) => {
-    const localRedisClient = redis.createClient();
-
-    localRedisClient.get(taskId, (error, exists) => {
-      localRedisClient.quit();
-
-      if (error) {
-        console.error(
-          `Error checking if task ${taskId} exists in Redis:`,
-          error
-        );
-        resolve(false);
-      } else {
-        console.log(`Task ${taskId} exists in Redis or not: ${exists}`);
-        resolve(exists ? true : false);
-      }
-    });
+  return new Promise(async (resolve) => {
+    console.log(`Checking if task ${taskId} exists in Redis...`);
+    let exist = await getFromRedis(taskId);
+    resolve(exist ? true : false);
   });
 }
 
 async function processResult(result) {
   try {
-    const localRedisClient = redis.createClient();
-    localRedisClient.set(result.taskId, JSON.stringify(result.result));
-    localRedisClient.quit();
+    await setFromRedis(result.taskId, result.result);
     console.log("Result cached in Redis");
   } catch (error) {
     console.error("Error caching result in Redis:", error.message);
@@ -116,6 +138,7 @@ app.post("/supervise", async (req, res) => {
   const data = req.body;
   console.log("Supervisor received data:", data);
 
+  // console.log(await getFromRedis("1"));
   await distributeTask(data);
 
   res.json({ message: "Task distributed by Supervisor" });
@@ -125,10 +148,7 @@ app.get("/results/:taskId", async (req, res) => {
   const taskId = req.params.taskId;
 
   try {
-    const localRedisClient = redis.createClient();
     localRedisClient.get(taskId, (err, result) => {
-      localRedisClient.quit();
-
       if (err) {
         console.error("Error retrieving result from Redis:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
@@ -152,11 +172,11 @@ app.listen(port, () => {
   console.log(`Supervisor listening at http://localhost:${port}`);
 });
 
-function selectWorkerId() {
-  let lastSelectedWorker = 0;
-
-  return () => {
-    lastSelectedWorker = (lastSelectedWorker % 3) + 1;
-    return lastSelectedWorker;
-  };
+async function selectWorkerId() {
+  let lastSelectedWorker =
+    parseInt(await getFromRedis("lastSelectedWorker")) || 0;
+  console.log("Last selected worker:", lastSelectedWorker);
+  lastSelectedWorker = (lastSelectedWorker % process.env.NO_OF_WORKERS) + 1;
+  await setFromRedis("lastSelectedWorker", lastSelectedWorker);
+  return lastSelectedWorker;
 }

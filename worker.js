@@ -1,86 +1,92 @@
 import express from "express";
 import amqp from "amqplib";
+import cluster from "cluster";
+import dotenv from "dotenv";
+dotenv.config();
 
-const app = express();
-let port = 5000;
-const queueName = "tasks";
-const resultQueueName = "results";
-
-let workerId;
-let channel;
-process.argv.forEach((val, index) => {
-  if (index > 1) {
-    workerId = parseInt(val);
-    port = 5000 + workerId;
-    startWorker();
+if (cluster.isPrimary) {
+  for (let i = 0; i < process.env.NO_OF_WORKERS; i++) {
+    cluster.fork({ workerId: i + 1 });
   }
-});
+} else {
+  const app = express();
+  const queueName = "tasks";
+  const resultQueueName = "results";
+  const port = 8080;
+  console.log(`Worker ${cluster.worker.id} started`);
 
-async function connectToRabbitMQ() {
-  if (!channel) {
+  async function connectToRabbitMQ() {
     const rabbitMQUrl = "amqp://localhost";
     const connection = await amqp.connect(rabbitMQUrl);
-    channel = await connection.createChannel();
+    const channel = await connection.createChannel();
     await channel.assertQueue(queueName);
     await channel.assertQueue(resultQueueName);
+    return channel;
   }
-  return channel;
-}
 
-async function processTask(task, channel) {
-  if (task.workerId === workerId) {
-    console.log(`Worker ${workerId} received task for processing:`, task);
+  async function processTask(task, channel) {
+    if (task.workerId === cluster.worker.id) {
+      console.log(
+        `Worker ${cluster.worker.id} received task for processing:`,
+        task
+      );
 
-    await simulateProcessing(task);
+      await simulateProcessing(task);
 
-    const result = {
-      taskId: task.id,
-      result: "Processing complete",
-    };
-    await channel.sendToQueue(
-      resultQueueName,
-      Buffer.from(JSON.stringify(result))
-    );
+      const result = {
+        taskId: task.id,
+        result: "Processing complete",
+      };
+      await channel.sendToQueue(
+        resultQueueName,
+        Buffer.from(JSON.stringify(result))
+      );
 
-    console.log(
-      `Task processed by Worker ${workerId}. Result sent to Supervisor`
-    );
-  } else {
-    console.log(
-      `Task with ID ${task.id} is not for Worker ${workerId}. Ignoring.`
-    );
+      console.log(
+        `Task processed by Worker ${cluster.worker.id}. Result sent to Supervisor`
+      );
+    } else {
+      await channel.sendToQueue(queueName, Buffer.from(JSON.stringify(task)));
+      console.log(
+        `Task with ID ${task.id} is not for Worker ${cluster.worker.id}. Ignoring.`
+      );
+    }
   }
-}
 
-async function simulateProcessing(task) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve();
-    }, 5000); // Simulating a 5-second processing time
+  async function simulateProcessing(task) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve();
+      }, 5000); // Simulating a 5-second processing time
+    });
+  }
+
+  async function startWorker() {
+    try {
+      const channel = await connectToRabbitMQ();
+      channel.consume(queueName, async (msg) => {
+        if (msg !== null) {
+          const task = JSON.parse(msg.content.toString());
+          console.log("Worker is processing task:", task);
+          await processTask(task, channel);
+          channel.ack(msg);
+        }
+      });
+      console.log(
+        `Worker ${cluster.worker.id} is listening to the RabbitMQ queue for tasks`
+      );
+    } catch (error) {
+      console.error(
+        `Error connecting to RabbitMQ in Worker ${cluster.worker.id}:`,
+        error.message
+      );
+    }
+  }
+  startWorker();
+
+  app.listen(port, () => {
+    console.log(
+      `Worker ${cluster.worker.id} listening at http://localhost:${port}`
+    );
   });
 }
-
-async function startWorker() {
-  try {
-    const channel = await connectToRabbitMQ();
-    channel.consume(queueName, async (msg) => {
-      if (msg !== null) {
-        const task = JSON.parse(msg.content.toString());
-        await processTask(task, channel);
-        channel.ack(msg);
-      }
-    });
-    console.log(
-      `Worker ${workerId} is listening to the RabbitMQ queue for tasks`
-    );
-  } catch (error) {
-    console.error(
-      `Error connecting to RabbitMQ in Worker ${workerId}:`,
-      error.message
-    );
-  }
-}
-
-app.listen(port, () => {
-  console.log(`Worker ${workerId} listening at http://localhost:${port}`);
-});
