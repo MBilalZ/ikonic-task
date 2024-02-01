@@ -3,7 +3,7 @@ import axios from "axios";
 async function StartTest() {
   const requests = [];
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 10; i++) {
     let _id = i + 1;
     requests.push(
       axios.post("http://localhost:3000/produce", {

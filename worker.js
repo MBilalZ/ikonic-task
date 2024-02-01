@@ -13,6 +13,7 @@ if (cluster.isPrimary) {
   const queueName = "tasks";
   const resultQueueName = "results";
   const port = 8080;
+
   console.log(`Worker ${cluster.worker.id} started`);
 
   async function connectToRabbitMQ() {
@@ -26,30 +27,23 @@ if (cluster.isPrimary) {
 
   async function processTask(task, channel) {
     if (task.workerId === cluster.worker.id) {
-      console.log(
-        `Worker ${cluster.worker.id} received task for processing:`,
-        task
-      );
-
       await simulateProcessing(task);
 
+      console.log(`Worker ${cluster.worker.id} is sending result...`);
       const result = {
         taskId: task.id,
         result: "Processing complete",
       };
+
       await channel.sendToQueue(
         resultQueueName,
         Buffer.from(JSON.stringify(result))
       );
-
       console.log(
         `Task processed by Worker ${cluster.worker.id}. Result sent to Supervisor`
       );
     } else {
       await channel.sendToQueue(queueName, Buffer.from(JSON.stringify(task)));
-      console.log(
-        `Task with ID ${task.id} is not for Worker ${cluster.worker.id}. Ignoring.`
-      );
     }
   }
 
@@ -63,11 +57,16 @@ if (cluster.isPrimary) {
 
   async function startWorker() {
     try {
+      console.log(
+        `Worker ${cluster.worker.id} is listening to the RabbitMQ queue for tasks`
+      );
       const channel = await connectToRabbitMQ();
       channel.consume(queueName, async (msg) => {
         if (msg !== null) {
           const task = JSON.parse(msg.content.toString());
-          console.log("Worker is processing task:", task);
+          console.log(
+            `Worker ${cluster.worker.id} is processing task: ${task.id}`
+          );
           await processTask(task, channel);
           channel.ack(msg);
         }

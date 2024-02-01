@@ -13,15 +13,7 @@ const rabbitMQUrl = "amqp://root:root@localhost";
 const taskQueueName = "tasks";
 const resultQueueName = "results";
 
-// import { createClient } from "redis";
-
 async function createRedisClient() {
-  // let client = await createClient({ legacyMode: true }).on("error", (err) =>
-  //   console.log("Redis Client Error", err)
-  // );
-
-  // console.log("Connected to Redis");
-  // return await client.connect();
   return new Redis();
 }
 
@@ -35,7 +27,6 @@ async function getFromRedis(key) {
   } catch (error) {
     console.error("Error getting value from Redis:", error.message);
   } finally {
-    // await client.disconnect();
   }
 }
 
@@ -47,7 +38,6 @@ async function setFromRedis(key, value) {
   } catch (error) {
     console.error("Error getting value from Redis:", error.message);
   } finally {
-    // await client.disconnect();
   }
 }
 
@@ -71,16 +61,21 @@ async function distributeTask(task) {
     const isTaskProcessed = await isTaskAlreadyProcessed(task.id);
 
     console.log(
-      `Supervisor found task ${task.id} is already processed or not: ${isTaskProcessed}`
+      isTaskProcessed
+        ? `Supervisor found that the task ${task.id} is already processed.`
+        : `Supervisor found that the task ${task.id} is not processed.`
     );
 
     if (!isTaskProcessed) {
-      console.log(`Supervisor sending task ${task.id} to RabbitMQ`);
+      console.log(
+        `Supervisor getting task ${task.id} ready for distribution...`
+      );
       const workerId = await selectWorkerId();
-      console.log(workerId);
-      console.log(`Selected Worker ID: ${workerId}`);
       task.workerId = workerId;
 
+      console.log(
+        `Supervisor is distributing task ${task.id} to worker ${workerId}`
+      );
       const channel = await connectToRabbitMQ();
       console.log(`Connected to RabbitMQ`);
 
@@ -109,6 +104,7 @@ async function isTaskAlreadyProcessed(taskId) {
 
 async function processResult(result) {
   try {
+    console.log("Caching result in Redis");
     await setFromRedis(result.taskId, result.result);
     console.log("Result cached in Redis");
   } catch (error) {
@@ -120,10 +116,12 @@ async function processResult(result) {
 
 async function startListeningForResults() {
   try {
+    console.log("Supervisor is listening to the RabbitMQ queue for results");
     const channel = await connectToRabbitMQ();
     channel.consume(resultQueueName, async (msg) => {
       if (msg !== null) {
         const result = JSON.parse(msg.content.toString());
+        console.log("Supervisor received result:", result);
         await processResult(result);
         channel.ack(msg);
       }
@@ -138,7 +136,6 @@ app.post("/supervise", async (req, res) => {
   const data = req.body;
   console.log("Supervisor received data:", data);
 
-  // console.log(await getFromRedis("1"));
   await distributeTask(data);
 
   res.json({ message: "Task distributed by Supervisor" });
@@ -173,9 +170,11 @@ app.listen(port, () => {
 });
 
 async function selectWorkerId() {
+  console.log(`Selecting worker for task...`);
   let lastSelectedWorker =
     parseInt(await getFromRedis("lastSelectedWorker")) || 0;
   lastSelectedWorker = (lastSelectedWorker % process.env.NO_OF_WORKERS) + 1;
   await setFromRedis("lastSelectedWorker", lastSelectedWorker);
+  console.log(`Selected Worker ID: ${lastSelectedWorker}`);
   return lastSelectedWorker;
 }
