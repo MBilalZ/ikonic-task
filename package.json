@@ -5,7 +5,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test.js",
+    "start-producer":"node producer.js",
+    "start-supervisor":"node supervisor.js",
+    "start-worker":"node worker.js"
   },
   "keywords": [],
   "author": "",
