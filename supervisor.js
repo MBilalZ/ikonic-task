@@ -175,7 +175,6 @@ app.listen(port, () => {
 async function selectWorkerId() {
   let lastSelectedWorker =
     parseInt(await getFromRedis("lastSelectedWorker")) || 0;
-  console.log("Last selected worker:", lastSelectedWorker);
   lastSelectedWorker = (lastSelectedWorker % process.env.NO_OF_WORKERS) + 1;
   await setFromRedis("lastSelectedWorker", lastSelectedWorker);
   return lastSelectedWorker;

@@ -13,18 +13,15 @@ async function StartTest() {
     );
   }
 
-  // Use Promise.all to execute all requests in parallel
   try {
     const responses = await Promise.all(requests);
 
-    // Process responses if needed
     responses.forEach((response, index) => {
       console.log(
         `Request ${index + 1} completed with status: ${response.status}`
       );
     });
   } catch (error) {
-    // Handle errors if any of the requests fail
     console.error("Error in parallel requests:", error.message);
   }
 }
